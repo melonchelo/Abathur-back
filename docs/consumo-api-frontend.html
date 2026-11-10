@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Abathur — Cómo consumir la API (frontend)</title>
+  <style>
+    @page { size: A4; margin: 16mm 15mm 18mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #1f2259;
+      font: 11px/1.45 "Segoe UI", system-ui, sans-serif;
+    }
+    h1 { margin: 0 0 4px; font-size: 26px; line-height: 1.05; letter-spacing: -0.02em; }
+    h2 {
+      margin: 22px 0 8px;
+      padding-top: 8px;
+      border-top: 2px solid #2d3283;
+      font-size: 16px;
+      page-break-after: avoid;
+    }
+    h3 { margin: 14px 0 4px; font-size: 13px; page-break-after: avoid; }
+    p { margin: 0 0 8px; }
+    .muted { color: #5d5f86; }
+    .lead { font-size: 12.5px; max-width: 92ch; }
+    code, pre { font-family: Consolas, ui-monospace, monospace; }
+    code { font-size: 0.92em; background: #f4ece4; padding: 0 3px; border-radius: 3px; }
+    pre {
+      margin: 6px 0 10px;
+      padding: 8px 10px;
+      background: #f7f4ef;
+      border: 1px solid #efe1d3;
+      border-radius: 6px;
+      font-size: 9.5px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      page-break-inside: avoid;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; page-break-inside: avoid; }
+    th, td { border-bottom: 1px solid #efe1d3; text-align: left; vertical-align: top; padding: 4px 6px; }
+    th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #5d5f86; }
+    .ep { page-break-inside: avoid; margin: 0 0 12px; }
+    .ep h3 { margin-bottom: 2px; }
+    .meta { color: #5d5f86; font-size: 10.5px; margin-bottom: 4px; }
+    .tag {
+      display: inline-block;
+      font-size: 9.5px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 99px;
+      background: #e9ebfb;
+      color: #2d3283;
+      margin-right: 4px;
+    }
+    .tag.be { background: #ffcf99; }
+    ul { margin: 4px 0 8px; padding-left: 18px; }
+    li { margin: 1px 0; }
+    .note {
+      background: #fff6ec;
+      border-left: 3px solid #f39a3d;
+      padding: 6px 10px;
+      margin: 8px 0 12px;
+      page-break-inside: avoid;
+    }
+    .cover-rule { height: 6px; background: #2d3283; margin: 10px 0 14px; }
+  </style>
+</head>
+<body>
+  <h1>Abathur · cómo consumir la API</h1>
+  <p class="muted">Guía para el frontend · base <code>http://localhost:3000/api</code> · 10/11/2026</p>
+  <div class="cover-rule"></div>
+  <p class="lead">Cada pantalla llama a un servicio que devuelve <code>Observable&lt;T&gt;</code>. El componente no arma la URL. Esta guía dice qué pide cada ruta, qué devuelve y qué ticket del backlog la usa. En el backlog los tickets de frontend son <strong>F-</strong> (no FE-). Los de backend son <strong>BE-</strong>.</p>
+
+  <h2>1. Antes de la primera llamada</h2>
+  <ul>
+    <li>Levantar el back: <code>npm run seed</code> y después <code>npm run dev</code> en <code>Abathur-back</code>.</li>
+    <li>El token <code>API_BASE_URL</code> vale <code>http://localhost:3000/api</code> (F-04). Ningún servicio concatena el host a mano.</li>
+    <li>CORS ya acepta <code>http://localhost:4200</code>.</li>
+    <li>Salvo <code>POST /auth/login</code>, toda ruta pide <code>Authorization: Bearer &lt;token&gt;</code>. El interceptor de F-04 lo agrega.</li>
+    <li>El servidor vuelve a leer el rol en cada pedido. Ocultar un botón con <code>appHasRole</code> no alcanza: el mismo pedido hecho a mano responde 403 (F-34).</li>
+    <li>Identificadores y fechas son <code>string</code>. Las fechas vienen en ISO (<code>2026-10-01T09:00:00.000Z</code>) y se muestran con <code>DatePipe</code> y locale <code>es-AR</code>.</li>
+    <li>El JSON va en <code>camelCase</code>: <code>weightAtVote</code>, <code>categoryId</code>, <code>underReview</code>. No usar los nombres de columna de la base (<code>weight_at_vote</code>).</li>
+  </ul>
+  <div class="note">
+    <strong>Errores.</strong> Toda falla responde <code>{ code: string; message: string }</code> con un status HTTP. <code>readApiError</code> (F-05) es el único lugar que estrecha <code>unknown</code>. Mostrar <code>message</code> en la pantalla y ramificar con <code>code</code> cuando haga falta (credenciales, quórum, motivo obligatorio, HTML).
+  </div>
+
+  <h3>Cuentas de la semilla</h3>
+  <p>Contraseña de todas: <code>abathur</code>. Los ids de la semilla son legibles. Los que crea la API son UUID.</p>
+  <table>
+    <tr><th>Usuario</th><th>Rol</th><th>Reputación</th><th>Para qué pantalla</th></tr>
+    <tr><td><code>lucia</code></td><td>admin</td><td>50</td><td>Decisión, usuarios, auditoría</td></tr>
+    <tr><td><code>tomas</code>, <code>sofia</code></td><td>moderador</td><td>30 (peso 3)</td><td>Voto y cierre</td></tr>
+    <tr><td><code>raul</code>, <code>diego</code></td><td>moderador</td><td>10 (peso 1)</td><td>Peso mínimo y empate</td></tr>
+    <tr><td><code>ana</code>, <code>martin</code></td><td>cliente</td><td>15</td><td>Propuestas y comentarios. Arrancan en 10 y suman +5 por una propuesta aceptada.</td></tr>
+  </table>
+  <p>Artículos útiles: <code>a-apertura-caja</code> (versión 2, <code>underReview: true</code>), <code>a-cambio-turno</code> (historial de dos versiones), <code>a-acceso-deposito</code> (sin revisión). Propuestas, una por estado: <code>p-abierta</code>, <code>p-en-votacion</code>, <code>p-recomendada</code>, <code>p-desaconsejada</code>, <code>p-controvertida</code>, <code>p-aceptada</code>, <code>p-rechazada</code>, <code>p-aceptada-excepcional</code>.</p>
+
+  <h2>2. Qué ticket consume qué ruta</h2>
+  <table>
+    <tr><th>Ticket</th><th>Pantalla</th><th>Rutas</th></tr>
+    <tr><td>F-07</td><td>Ingreso y guard de sesión</td><td><code>POST /auth/login</code>, <code>GET /me</code></td></tr>
+    <tr><td>F-10, F-11</td><td>Listado, búsqueda y filtro</td><td><code>GET /articles</code></td></tr>
+    <tr><td>F-12, F-13, F-31</td><td>Detalle, aviso de revisión y artículo ya aceptado</td><td><code>GET /articles/:id</code></td></tr>
+    <tr><td>F-14</td><td>Árbol de categorías</td><td><code>GET /categories</code></td></tr>
+    <tr><td>F-15</td><td>Historial</td><td><code>GET /articles/:id/versions</code></td></tr>
+    <tr><td>F-16</td><td>Listado de propuestas</td><td><code>GET /proposals</code></td></tr>
+    <tr><td>F-17, F-19</td><td>Detalle y diff</td><td><code>GET /proposals/:id</code>, <code>GET .../comments</code>, <code>GET .../votes</code>, <code>GET /articles/:id/versions/:versionId</code></td></tr>
+    <tr><td>F-18</td><td>Alta de propuesta</td><td><code>POST /proposals</code></td></tr>
+    <tr><td>F-20</td><td>Comentario</td><td><code>POST /proposals/:id/comments</code></td></tr>
+    <tr><td>F-21</td><td>Abrir votación</td><td><code>POST /proposals/:id/voting</code></td></tr>
+    <tr><td>F-23, F-24</td><td>Previa, voto y cierre</td><td><code>GET /proposals/:id/votes</code>, <code>POST /proposals/:id/votes</code>, <code>POST /proposals/:id/close</code></td></tr>
+    <tr><td>F-26</td><td>Artículo base</td><td><code>POST /articles</code></td></tr>
+    <tr><td>F-27</td><td>Categoría</td><td><code>POST /categories</code>, <code>PATCH /categories/:id</code></td></tr>
+    <tr><td>F-28, F-30</td><td>Decisión y puntaje en caliente</td><td><code>POST /proposals/:id/decision</code></td></tr>
+    <tr><td>F-29</td><td>Reputación de una persona</td><td><code>GET /users/:id/reputation</code></td></tr>
+    <tr><td>F-32</td><td>Usuarios</td><td><code>GET /users</code>, <code>POST /users</code>, <code>PATCH /users/:id</code>, <code>POST /users/:id/sanctions</code></td></tr>
+    <tr><td>F-33</td><td>Auditoría</td><td><code>GET /audit</code></td></tr>
+  </table>
+  <p class="muted">F-22 y F-25 no llaman a la API: calculan el peso en el cliente con la misma fórmula del servidor. El número que se guarda es el que devuelve el POST del voto.</p>
+
+  <h2>3. Sesión · BE-0 · F-07</h2>
+
+  <div class="ep">
+    <h3>POST /auth/login</h3>
+    <p class="meta"><span class="tag">público</span><span class="tag be">BE-0</span><span class="tag">F-07</span></p>
+    <pre>{ "username": "ana", "password": "abathur" }
+
+// 200
+{
+  "token": "&lt;jwt&gt;",
+  "user": { "id": "u-ana", "username": "ana", "alias": "Ana",
+            "role": "cliente", "active": true, "reputation": 15,
+            "createdAt": "2026-10-01T09:00:00.000Z" }
+}</pre>
+    <p>El JWT incluye <code>role</code>, <code>username</code> y el id en <code>sub</code>. Guardar el token y el usuario. No decodificar el rol para autorizar una escritura: el servidor lo ignora y mira la base.</p>
+    <ul>
+      <li><code>401 INVALID_CREDENTIALS</code>: usuario o contraseña. Mostrarlo con <code>@if</code>.</li>
+      <li><code>403 ACCOUNT_INACTIVE</code>: la cuenta existe y la desactivaron. No entra.</li>
+    </ul>
+  </div>
+
+  <div class="ep">
+    <h3>GET /me</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-07</span></p>
+    <p>Devuelve el mismo objeto <code>User</code> del login, con la reputación recalculada. Sirve para rehidratar la sesión al recargar. <code>401 TOKEN_MISSING</code>, <code>TOKEN_INVALID</code> o <code>ACCOUNT_INACTIVE</code> mandan de vuelta a <code>/ingreso</code>.</p>
+  </div>
+
+  <h2>4. Artículos · BE-0 y BE-1 · F-10 a F-15, F-26, F-31</h2>
+  <pre>interface ArticleSummary {
+  id: string; title: string; summary: string; categoryId: string;
+  currentVersionId: string; currentVersionNumber: number;
+  createdBy: string; createdAt: string; updatedAt: string;
+  underReview: boolean; // hay una propuesta que no está aceptada ni rechazada
+}
+interface ArticleVersion {
+  id: string; articleId: string; versionNumber: number;
+  title: string; summary: string; content: string; // Markdown, nunca HTML
+  categoryId: string; tags: string[]; sources: { title: string; url: string }[];
+  changeSummary: string; publishedBy: string; publishedByAlias: string;
+  publishedAt: string; proposalId: string | null; isCurrent: boolean;
+}
+interface ArticleDetail extends ArticleSummary { currentVersion: ArticleVersion; }</pre>
+
+  <div class="ep">
+    <h3>GET /articles?q=&amp;categoryId=</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-10</span><span class="tag">F-11</span><span class="tag">F-14</span></p>
+    <p>Devuelve <code>ArticleSummary[]</code>. <code>q</code> busca en título y resumen, no en el cuerpo. <code>categoryId</code> es exacto: un click en el árbol manda el id de esa categoría, no el de las hijas. Conviene dejar ambos en los query params de la ruta para que recargar conserve la búsqueda.</p>
+  </div>
+
+  <div class="ep">
+    <h3>GET /articles/:id</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-12</span><span class="tag">F-13</span><span class="tag">F-31</span></p>
+    <p>Devuelve <code>ArticleDetail</code>. <code>appAvisoRevision</code> se prende con <code>underReview</code>. El cuerpo se parte en el cliente (<code>#</code>, <code>##</code>, párrafo, lista con <code>-</code>) y se pinta con <code>@switch</code>, sin <code>innerHTML</code>. Después de aceptar una propuesta, volver a pedir este GET: la versión vigente cambia y el aviso se apaga cuando ya no quedan propuestas abiertas. <code>404 ARTICLE_NOT_FOUND</code>.</p>
+  </div>
+
+  <div class="ep">
+    <h3>GET /articles/:id/versions</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-15</span><span class="tag">F-31</span></p>
+    <p>Devuelve <code>ArticleVersion[]</code>, de la más nueva a la más vieja. Destacar la que tiene <code>isCurrent: true</code>. Mostrar <code>publishedByAlias</code>, <code>publishedAt</code> y <code>changeSummary</code>.</p>
+  </div>
+
+  <div class="ep">
+    <h3>GET /articles/:id/versions/:versionId</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-19</span></p>
+    <p>Una versión puntual. El diff de una modificación compara <code>content</code> de esta versión (la de <code>proposal.baseVersionId</code>) contra <code>proposal.proposed.content</code>. <code>404 VERSION_NOT_FOUND</code>.</p>
+  </div>
+
+  <div class="ep">
+    <h3>POST /articles</h3>
+    <p class="meta"><span class="tag">admin</span><span class="tag be">BE-1</span><span class="tag">F-26</span></p>
+    <pre>{
+  "title": "Cierre de caja",
+  "summary": "Cómo cerrar la caja al final del turno.",
+  "content": "# Cierre de caja\n\n- Contar el efectivo.\n",
+  "categoryId": "c-caja",
+  "tags": ["caja"],
+  "sources": [{ "title": "Manual", "url": "https://example.com/manual" }],
+  "changeSummary": "Versión inicial"
+}</pre>
+    <p>Responde <code>201</code> con <code>ArticleDetail</code>. Nace la versión 1 y <code>currentVersionId</code> apunta a ella. <code>tags</code>, <code>sources</code> y <code>changeSummary</code> pueden omitirse. El contenido se guarda igual a como llegó.</p>
+    <ul>
+      <li><code>403 ROLE_FORBIDDEN</code> si no es admin.</li>
+      <li><code>400 HTML_NOT_ALLOWED</code> si <code>content</code> trae una etiqueta (<code>&lt;p&gt;</code>, <code>&lt;br/&gt;</code>, un comentario HTML). El validador del formulario tiene que avisarlo antes; el del servidor es el que vale.</li>
+      <li><code>400 CATEGORY_NOT_FOUND</code> o <code>INVALID_FIELD</code>.</li>
+    </ul>
+  </div>
+
+  <h2>5. Categorías · BE-0 y BE-1 · F-14, F-27</h2>
+  <pre>interface Category {
+  id: string; name: string; description: string | null;
+  parentId: string | null; createdAt: string;
+}</pre>
+  <div class="ep">
+    <h3>GET /categories y GET /categories/:id</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-14</span><span class="tag">F-11</span></p>
+    <p>La lista viene plana. El árbol lo arma el componente recursivo con <code>parentId</code>. Semilla: Operación → Turnos, Operación → Caja, y Seguridad en la raíz.</p>
+  </div>
+  <div class="ep">
+    <h3>POST /categories · PATCH /categories/:id</h3>
+    <p class="meta"><span class="tag">admin</span><span class="tag be">BE-1</span><span class="tag">F-27</span></p>
+    <pre>{ "name": "Arqueos", "description": "Controles de efectivo", "parentId": "c-caja" }</pre>
+    <p>En el PATCH, cada campo es opcional. <code>parentId: null</code> la deja en la raíz. El validador del formulario impide elegirse a sí misma o a una descendiente; si igual llega, el servidor responde y hay que mostrar ese error:</p>
+    <ul>
+      <li><code>400 CATEGORY_SELF_PARENT</code></li>
+      <li><code>400 CATEGORY_CYCLE</code></li>
+      <li><code>404 CATEGORY_NOT_FOUND</code></li>
+    </ul>
+  </div>
+
+  <h2>6. Propuestas y comentarios · BE-0 y BE-1 · F-16 a F-21</h2>
+  <pre>type ProposalStatus =
+  | 'abierta' | 'en_votacion' | 'recomendada' | 'desaconsejada'
+  | 'controvertida' | 'aceptada' | 'rechazada';
+
+interface Proposal {
+  id: string;
+  kind: 'creacion' | 'modificacion';
+  articleId: string | null;      // null en una creación
+  baseVersionId: string | null;  // null en una creación
+  authorId: string; authorAlias: string;
+  proposed: { title; summary; content; categoryId; tags; sources };
+  status: ProposalStatus;
+  communityResult: 'recomendada' | 'desaconsejada' | 'controvertida' | null;
+  tally: { votes: number; favor: number; contra: number; quorum: boolean };
+  votingOpenedAt: string | null; votingClosedAt: string | null;
+  decision: ProposalDecision | null;  // ver sección 8
+  createdAt: string;
+}</pre>
+
+  <div class="ep">
+    <h3>GET /proposals?status=&amp;articleId=&amp;authorId=</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-16</span></p>
+    <p>Devuelve <code>Proposal[]</code>, de la más nueva a la más vieja. El filtro de estado manda el literal (<code>en_votacion</code>, no el texto del pipe). El pipe <code>estadoPropuesta</code> solo traduce para mostrar.</p>
+  </div>
+
+  <div class="ep">
+    <h3>GET /proposals/:id</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-17</span><span class="tag">F-28</span></p>
+    <p>El <code>@switch</code> del detalle tiene una rama por <code>status</code>. <code>tally</code> ya trae la suma de pesos y si hay quórum, para pintar el estado sin esperar al store. <code>404 PROPOSAL_NOT_FOUND</code>.</p>
+  </div>
+
+  <div class="ep">
+    <h3>POST /proposals</h3>
+    <p class="meta"><span class="tag">cliente o moderador</span><span class="tag be">BE-1</span><span class="tag">F-18</span></p>
+    <pre>// Creación: no mandar articleId ni baseVersionId
+{ "proposed": { "title": "...", "summary": "...", "content": "# ...\n",
+                "categoryId": "c-caja", "tags": [], "sources": [] } }
+
+// Modificación: los dos, y los dos juntos
+{ "articleId": "a-apertura-caja", "baseVersionId": "v-apertura-caja-2",
+  "proposed": { "...": "..." } }</pre>
+    <p>Responde <code>201</code> con la propuesta en <code>abierta</code>. No toca el artículo publicado. El admin no puede proponer (<code>403</code>). Mandar solo uno de los dos ids responde <code>400 INVALID_PROPOSAL_TARGET</code>. Una versión que no es de ese artículo responde <code>400 BASE_VERSION_MISMATCH</code>. El mismo rechazo de HTML que en artículos aplica a <code>proposed.content</code>.</p>
+  </div>
+
+  <div class="ep">
+    <h3>GET y POST /proposals/:id/comments</h3>
+    <p class="meta"><span class="tag">leer: autenticado · escribir: cliente o moderador</span><span class="tag be">BE-0 / BE-1</span><span class="tag">F-17</span><span class="tag">F-20</span></p>
+    <pre>// POST
+{ "body": "¿Podés citar la circular nueva?" }
+
+// 201
+{ "id": "...", "proposalId": "p-abierta", "authorId": "u-ana",
+  "authorAlias": "Ana", "body": "...", "createdAt": "..." }</pre>
+    <p>Comentario plano, sin hilos. El GET devuelve la lista en orden cronológico. Al crear, agregar a la lista el comentario que vuelve la API, sin recargar. El admin no comenta.</p>
+  </div>
+
+  <div class="ep">
+    <h3>POST /proposals/:id/voting</h3>
+    <p class="meta"><span class="tag">moderador o admin</span><span class="tag be">BE-1</span><span class="tag">F-21</span></p>
+    <p>Sin cuerpo. Pasa de <code>abierta</code> a <code>en_votacion</code> y devuelve la propuesta. Si ya no está abierta: <code>409 PROPOSAL_NOT_OPEN</code>. El botón solo lo ven moderador y admin.</p>
+  </div>
+
+  <h2>7. Votación · BE-2 · F-23, F-24</h2>
+  <div class="note">
+    <code>peso = min(5, max(1, Math.floor(reputacion / 10)))</code>. Reputación 10 → 1, 30 → 3, 50 o más → 5. La previa del store usa esta fórmula. El peso confirmado es <code>weightAtVote</code> del voto que devuelve el POST. Si el cliente manda un peso, el servidor lo ignora.
+  </div>
+  <pre>interface Vote {
+  id: string; proposalId: string; moderatorId: string; moderatorAlias: string;
+  choice: 'a_favor' | 'en_contra';
+  weightAtVote: number;  // congelado al votar
+  createdAt: string;
+}</pre>
+
+  <div class="ep">
+    <h3>GET /proposals/:id/votes</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-17</span><span class="tag">F-23</span></p>
+    <p>Carga inicial del <code>VoteTallyStore</code>. Reemplazar el arreglo del signal, no mutarlo. El quórum de la previa es <code>votos.length &gt;= 3</code>, contando el borrador todavía no enviado.</p>
+  </div>
+
+  <div class="ep">
+    <h3>POST /proposals/:id/votes</h3>
+    <p class="meta"><span class="tag">moderador</span><span class="tag be">BE-2</span><span class="tag">F-24</span></p>
+    <pre>{ "choice": "a_favor" }</pre>
+    <p>Solo con la propuesta en <code>en_votacion</code>. Responde <code>201</code> con el <code>Vote</code>. Reemplazar en el store el borrador por ese voto y dejar el draft en <code>null</code>. Un voto por moderador, y no se edita.</p>
+    <ul>
+      <li><code>409 ALREADY_VOTED</code></li>
+      <li><code>409 PROPOSAL_NOT_IN_VOTING</code></li>
+      <li><code>403</code> si es admin o cliente. El admin abre y cierra; no vota.</li>
+    </ul>
+  </div>
+
+  <div class="ep">
+    <h3>POST /proposals/:id/close</h3>
+    <p class="meta"><span class="tag">moderador o admin</span><span class="tag be">BE-2</span><span class="tag">F-24</span></p>
+    <p>Sin cuerpo. Exige tres votos. Con quórum devuelve la propuesta en <code>recomendada</code>, <code>desaconsejada</code> o <code>controvertida</code>. El artículo publicado no cambia. Menos de tres votos: <code>409 QUORUM_NOT_MET</code> y el estado sigue <code>en_votacion</code>. Mostrar ese error con <code>@if</code>. El botón de cierre se habilita con el <code>computed</code> de quórum, pero la cuenta que vale es la del servidor.</p>
+    <p>Ejemplos que tienen que coincidir con la spec del front: pesos 3, 3 y 1 con dos a favor dan 6 contra 1 y <code>recomendada</code>. Pesos 4, 2 y 2 con el 4 en contra empatan y quedan <code>controvertida</code>.</p>
+  </div>
+
+  <h2>8. Decisión del administrador · BE-3 · F-28, F-30, F-31</h2>
+  <div class="ep">
+    <h3>POST /proposals/:id/decision</h3>
+    <p class="meta"><span class="tag">admin</span><span class="tag be">BE-3</span><span class="tag">F-28</span><span class="tag">F-30</span><span class="tag">F-31</span></p>
+    <pre>{ "outcome": "aceptar", "reason": null, "markBaseAsError": false }</pre>
+    <p><code>outcome</code> es <code>aceptar</code> o <code>rechazar</code>. <code>reason</code> puede ir vacío solo cuando la decisión acompaña un resultado con quórum (<code>recomendada</code> + aceptar, o <code>desaconsejada</code> + rechazar). Es obligatorio si se aparta, si hubo empate (<code>controvertida</code>) o si no hubo quórum. <code>markBaseAsError</code> solo tiene sentido al aceptar una modificación: le resta 5 a quien publicó la versión de base.</p>
+    <pre>{
+  "proposal": { "...status": "aceptada", "decision": {
+      "outcome": "aceptar", "kind": "acorde", "reason": null,
+      "markedBaseAsError": false, "decidedBy": "u-lucia",
+      "decidedByAlias": "Lucía", "decidedAt": "...",
+      "publishedArticleId": "a-apertura-caja",
+      "publishedVersionId": "..." } },
+  "article": { "...ArticleDetail de como quedó, o null si se rechazó" },
+  "reputationEvents": [
+    { "id": "...", "userId": "u-ana", "eventType": "aporte_respaldado",
+      "sourceId": "p-recomendada", "delta": 5, "createdAt": "..." }
+  ],
+  "audit": { "id": "...", "action": "decision_propuesta",
+             "decisionKind": "acorde", "reason": null, "...": "..." }
+}</pre>
+    <ul>
+      <li><code>decision.kind</code> es <code>acorde</code>, <code>apartada</code> o <code>excepcional</code>. La pantalla los distingue. <code>excepcional</code> es la resolución sin quórum.</li>
+      <li>Aceptar una creación hace nacer el artículo. Aceptar una modificación agrega una versión y no reescribe la anterior. Rechazar no cambia versiones ni reputación.</li>
+      <li>F-30 mete <code>reputationEvents</code> en el <code>ReputationStore</code> sin recargar y sin duplicar un evento que ya estaba. El autor suma <code>aporte_respaldado</code> (+5) una sola vez.</li>
+      <li><code>400 REASON_REQUIRED</code> cuando falta el motivo. El validador cruzado del formulario tiene que coincidir con esta regla.</li>
+      <li><code>409 VOTING_NOT_CLOSED</code> si ya hay tres votos y nadie cerró: primero <code>POST .../close</code>.</li>
+      <li><code>409 PROPOSAL_ALREADY_DECIDED</code> si ya estaba aceptada o rechazada.</li>
+      <li><code>400 MARK_ERROR_NOT_ALLOWED</code> si se marca error fuera de una modificación aceptada.</li>
+    </ul>
+  </div>
+
+  <h2>9. Personas, reputación y auditoría · BE-0 y BE-4 · F-29, F-32, F-33</h2>
+  <pre>interface ReputationEvent {
+  id: string; userId: string;
+  eventType: 'asignacion_inicial' | 'aporte_respaldado'
+           | 'error_comprobado' | 'conducta_abusiva';
+  sourceId: string; delta: number; createdAt: string;
+}</pre>
+
+  <div class="ep">
+    <h3>GET /users y GET /users/:id</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-32</span></p>
+    <p>Lista o ficha. <code>reputation</code> ya es la suma de los eventos. <code>alias</code> es el seudónimo visible.</p>
+  </div>
+
+  <div class="ep">
+    <h3>GET /users/:id/reputation</h3>
+    <p class="meta"><span class="tag">autenticado</span><span class="tag be">BE-0</span><span class="tag">F-29</span></p>
+    <pre>{ "userId": "u-ana", "score": 15, "weight": 1,
+  "events": [ { "eventType": "asignacion_inicial", "delta": 10, "sourceId": "u-ana" },
+              { "eventType": "aporte_respaldado", "delta": 5, "sourceId": "p-aceptada" } ] }</pre>
+    <p>Carga el <code>ReputationStore</code>. El puntaje de la pantalla es el <code>computed</code> de la suma de <code>delta</code>, que tiene que coincidir con <code>score</code>. <code>weight</code> es el peso que tendría hoy un voto de esa persona.</p>
+  </div>
+
+  <div class="ep">
+    <h3>POST /users</h3>
+    <p class="meta"><span class="tag">admin</span><span class="tag be">BE-4</span><span class="tag">F-32</span></p>
+    <pre>{ "alias": "Nora", "username": "nora", "role": "moderador",
+  "initialReputation": 40 }</pre>
+    <p><code>password</code> es opcional; si no viene, la cuenta usa <code>abathur</code>. Responde <code>201</code> con el <code>User</code> y su reputación igual a <code>initialReputation</code> (evento <code>asignacion_inicial</code>, con <code>sourceId</code> igual al id de usuario). <code>409 USERNAME_TAKEN</code>. El usuario solo admite letras, números, punto, guion y guion bajo.</p>
+  </div>
+
+  <div class="ep">
+    <h3>PATCH /users/:id</h3>
+    <p class="meta"><span class="tag">admin</span><span class="tag be">BE-4</span><span class="tag">F-32</span></p>
+    <pre>{ "role": "cliente", "active": false, "reason": "Dejó el equipo" }</pre>
+    <p>Hay que mandar <code>role</code>, <code>active</code>, o los dos. Desactivar no borra votos, eventos ni auditoría: el login posterior responde <code>403 ACCOUNT_INACTIVE</code> y un token viejo deja de servir. <code>409 SELF_UPDATE_FORBIDDEN</code> si el admin se modifica a sí mismo. <code>400 EMPTY_UPDATE</code> si el cuerpo no cambia nada.</p>
+  </div>
+
+  <div class="ep">
+    <h3>POST /users/:id/sanctions</h3>
+    <p class="meta"><span class="tag">admin</span><span class="tag be">BE-4</span><span class="tag">F-32</span></p>
+    <pre>{ "reason": "Insultos en un comentario" }</pre>
+    <p>No es el módulo de sanciones del documento maestro: es solo el evento manual <code>conducta_abusiva</code> (−8). El motivo es obligatorio. Responde <code>201</code> con <code>{ user, audit, event }</code>. El <code>sourceId</code> del evento es el id de esa auditoría, así que dos sanciones a la misma persona generan dos filas. Sumar <code>event</code> al store de reputación de esa persona. <code>409 SELF_SANCTION_FORBIDDEN</code> si el admin se la aplica a sí mismo.</p>
+  </div>
+
+  <div class="ep">
+    <h3>GET /audit?action=</h3>
+    <p class="meta"><span class="tag">admin</span><span class="tag be">BE-4</span><span class="tag">F-33</span></p>
+    <pre>interface AuditEntry {
+  id: string; actorId: string; actorAlias: string;
+  action: 'decision_propuesta' | 'alta_usuario' | 'cambio_usuario' | 'conducta_abusiva';
+  entityType: 'proposal' | 'user'; entityId: string;
+  reason: string | null;
+  decisionKind: 'acorde' | 'apartada' | 'excepcional' | null;
+  createdAt: string;
+}</pre>
+    <p>Lista de la más nueva a la más vieja. <code>action</code> filtra por uno de esos cuatro literales. En una decisión, <code>decisionKind</code> separa la excepcional de la acorde y de la apartada; en el resto de las acciones viene <code>null</code>. Mostrar actor, acción, entidad, motivo y fecha. Un cliente o moderador recibe <code>403</code>.</p>
+  </div>
+
+  <h2>10. Códigos que conviene ramificar</h2>
+  <table>
+    <tr><th>Status</th><th>code</th><th>Cuándo</th><th>Ticket</th></tr>
+    <tr><td>401</td><td><code>INVALID_CREDENTIALS</code></td><td>Login incorrecto</td><td>F-07</td></tr>
+    <tr><td>401</td><td><code>TOKEN_MISSING</code> / <code>TOKEN_INVALID</code></td><td>Sin sesión o token vencido (8 h)</td><td>F-07</td></tr>
+    <tr><td>401 / 403</td><td><code>ACCOUNT_INACTIVE</code></td><td>Cuenta desactivada, en el login o con un token viejo</td><td>F-07, F-32</td></tr>
+    <tr><td>403</td><td><code>ROLE_FORBIDDEN</code></td><td>El rol no alcanza. El mensaje dice cuál hace falta</td><td>F-34</td></tr>
+    <tr><td>400</td><td><code>HTML_NOT_ALLOWED</code></td><td>El Markdown trae una etiqueta</td><td>F-18, F-26</td></tr>
+    <tr><td>400</td><td><code>INVALID_FIELD</code></td><td>Falta un campo o no tiene la forma pedida. <code>message</code> nombra el campo</td><td>todos los POST</td></tr>
+    <tr><td>400</td><td><code>CATEGORY_CYCLE</code> / <code>CATEGORY_SELF_PARENT</code></td><td>Padre inválido</td><td>F-27</td></tr>
+    <tr><td>400</td><td><code>REASON_REQUIRED</code></td><td>Decisión apartada, empate o sin quórum, sin motivo</td><td>F-28</td></tr>
+    <tr><td>409</td><td><code>ALREADY_VOTED</code></td><td>Segundo voto del mismo moderador</td><td>F-24</td></tr>
+    <tr><td>409</td><td><code>QUORUM_NOT_MET</code></td><td>Cierre con menos de tres votos</td><td>F-24</td></tr>
+    <tr><td>409</td><td><code>USERNAME_TAKEN</code></td><td>Alta de usuario repetida</td><td>F-32</td></tr>
+  </table>
+  <p class="muted">Un 500 responde <code>INTERNAL_ERROR</code>. Tratarlo como el resto de los <code>ApiError</code>: estado de error de la pantalla, sin asumir la forma del cuerpo.</p>
+</body>
+</html>
